@@ -8,8 +8,8 @@
     "start": "electron .",
     "test:electron": "node --test tests/electron_launcher.test.js",
     "build:server": "node scripts/build-server.js",
-    "dist:electron": "npm run build:server && electron-builder",
-    "dist:electron:dir": "npm run build:server && electron-builder --dir"
+    "dist:electron": "npm run build:server && electron-builder --publish never",
+    "dist:electron:dir": "npm run build:server && electron-builder --dir --publish never"
   },
   "devDependencies": {
     "electron": "^42.4.1",

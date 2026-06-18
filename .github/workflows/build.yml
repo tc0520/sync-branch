@@ -60,6 +60,10 @@ jobs:
       - name: Build package
         run: npm run dist:electron
 
+      - name: List package outputs
+        shell: bash
+        run: find dist/electron -maxdepth 2 -type f -print
+
       - name: Upload package
         uses: actions/upload-artifact@v4
         with:
