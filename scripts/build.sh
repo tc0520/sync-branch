@@ -3,6 +3,7 @@
 # 用法: ./scripts/build.sh
 set -euo pipefail
 cd "$(dirname "$0")/.."
+ROOT=$(pwd)
 
 APP="dist/分支同步面板.app"
 
@@ -35,4 +36,15 @@ rm -f dist/分支同步面板.zip
 ditto -c -k --keepParent "$STAGE" dist/分支同步面板.zip
 rm -rf /tmp/sb_pkg
 echo "  ✓ 已生成 dist/分支同步面板.zip ($(du -h dist/分支同步面板.zip | cut -f1 | tr -d ' '))"
+
+# 5. Windows 专用包：全英文路径，避免部分 Windows 解压工具显示中文文件名乱码
+WIN_STAGE=/tmp/sb_win_pkg/branch-sync-panel-windows
+rm -rf /tmp/sb_win_pkg && mkdir -p "$WIN_STAGE"
+cp dist/windows/sync-branches-ui.py "$WIN_STAGE/"
+cp dist/windows/分支同步面板.bat "$WIN_STAGE/start.bat"
+cp dist/README.md "$WIN_STAGE/README.md"
+rm -f dist/branch-sync-panel-windows.zip
+(cd /tmp/sb_win_pkg && COPYFILE_DISABLE=1 zip -rq "$ROOT/dist/branch-sync-panel-windows.zip" branch-sync-panel-windows)
+rm -rf /tmp/sb_win_pkg
+echo "  ✓ 已生成 dist/branch-sync-panel-windows.zip ($(du -h dist/branch-sync-panel-windows.zip | cut -f1 | tr -d ' '))"
 echo "完成。"
