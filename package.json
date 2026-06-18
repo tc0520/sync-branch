@@ -19,6 +19,7 @@
   "build": {
     "appId": "com.standardsoftware.syncbranches",
     "productName": "分支同步面板",
+    "artifactName": "sync-branch-${version}-${os}-${arch}.${ext}",
     "asar": true,
     "directories": {
       "output": "dist/electron"

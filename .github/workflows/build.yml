@@ -115,7 +115,12 @@ jobs:
           fi
 
           if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
-            gh release upload "$GITHUB_REF_NAME" "${files[@]}" --clobber
+            while IFS= read -r asset_name; do
+              if [ -n "$asset_name" ]; then
+                gh release delete-asset "$GITHUB_REF_NAME" "$asset_name" --yes
+              fi
+            done < <(gh release view "$GITHUB_REF_NAME" --json assets --jq '.assets[].name')
+            gh release upload "$GITHUB_REF_NAME" "${files[@]}"
           else
             gh release create "$GITHUB_REF_NAME" "${files[@]}" \
               --title "sync-branch $PACKAGE_VERSION" \
