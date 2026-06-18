@@ -6,6 +6,7 @@
   "private": true,
   "scripts": {
     "start": "electron .",
+    "test": "node --test tests/*.test.js",
     "test:electron": "node --test tests/electron_launcher.test.js",
     "build:server": "node scripts/build-server.js",
     "dist:electron": "npm run build:server && electron-builder --publish never",
