@@ -18,16 +18,29 @@ function run(command, args, options = {}) {
   return result;
 }
 
-function findPython() {
-  const candidates = process.platform === 'win32'
-    ? [
-        { command: 'py', args: ['-3'] },
-        { command: 'python', args: [] },
-      ]
-    : [
-        { command: 'python3', args: [] },
-        { command: 'python', args: [] },
-      ];
+function pythonCandidates(platform = process.platform, env = process.env) {
+  const candidates = [];
+  if (env.PYTHON) {
+    candidates.push({ command: env.PYTHON, args: [] });
+  }
+
+  if (platform === 'win32') {
+    candidates.push(
+      { command: 'python', args: [] },
+      { command: 'py', args: ['-3'] },
+    );
+  } else {
+    candidates.push(
+      { command: 'python3', args: [] },
+      { command: 'python', args: [] },
+    );
+  }
+
+  return candidates;
+}
+
+function findPython(platform = process.platform, env = process.env) {
+  const candidates = pythonCandidates(platform, env);
 
   for (const candidate of candidates) {
     const result = run(candidate.command, [...candidate.args, '--version']);
@@ -94,4 +107,11 @@ function main() {
   console.log(`已生成: ${serverDir}`);
 }
 
-main();
+if (require.main === module) {
+  main();
+}
+
+module.exports = {
+  findPython,
+  pythonCandidates,
+};
