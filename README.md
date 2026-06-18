@@ -151,6 +151,21 @@ npm run dist:electron
 
 > Electron 包里的后端可执行文件是平台相关的：Windows 包请在 Windows 或 CI Windows runner 上构建，macOS 包请在 macOS 上构建。跨平台复用同一个 Python 后端二进制不可行。
 
+### GitHub Actions 打包
+
+仓库带了 `.github/workflows/build.yml`，可以在 GitHub 上直接打包：
+
+1. 打开 GitHub 仓库页面。
+2. 点顶部 **Actions**。
+3. 左侧选择 **Build desktop packages**。
+4. 点右侧 **Run workflow**，分支选 `main`，再点绿色按钮确认。
+5. 等 `Build macOS` 和 `Build Windows` 两个 job 跑完。
+6. 进入这次 workflow run 页面，在底部 **Artifacts** 下载：
+   - `sync-branch-macos`：macOS 的 dmg/zip。
+   - `sync-branch-windows`：Windows 的 exe/zip。
+
+也可以直接 push 到 `main`，workflow 会自动跑。Windows 包由 `windows-latest` runner 生成，macOS 包由 `macos-latest` runner 生成，所以各自都会内置对应平台的 Python 后端。
+
 > ⚠️ `dist/分支同步面板.app/Contents/Resources/` 和 `dist/windows/` 里的 `sync-branches-ui.py`
 > 是**构建拷贝**，永远不要直接改它们——改根目录那份，然后跑 build.sh。
 
