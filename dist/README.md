@@ -1,7 +1,7 @@
 # 分支同步面板
 
-批量把多个 git 项目的指定分支合并上主分支最新代码并推送，可视化看到哪些项目会冲突需要人工处理。
-**原生桌面窗口应用**（不依赖浏览器），关闭窗口即退出。
+批量把多个 git 项目的指定分支合并上主分支最新代码并推送，也能基于远程主分支批量创建新分支，或批量切换多个项目到同一个目标分支，可视化看到哪些项目会冲突需要人工处理。
+macOS 是原生桌面窗口应用；Windows 启动本机 Web 面板。两者都包含「同步分支」「创建新分支」「切换分支」三个页面。
 
 测试同学发来这样的列表，直接整段粘贴进面板即可（中英文冒号都行）：
 
@@ -19,6 +19,27 @@ rpc_process：dev_ws_api_product
 4. 点**一键同步**：自动 stash 你的改动 → 切目标分支 → 合并主分支 → 推送 → 切回原分支恢复改动；
    有冲突的项目会停在冲突现场，**双击该行**查看解决步骤
 
+## 创建新分支
+
+接到新需求时，可以切到「创建新分支」页面：
+
+1. 粘贴项目列表，一行一个项目名
+2. 填写新分支名
+3. 选择是否推送到远程并设置 upstream
+4. 点**创建分支**
+
+工具会基于远程主分支创建并切到新分支。如果当前分支有未提交改动，会先 stash 保存，但不会恢复到新分支，避免把旧需求改动带过去。不推送时不会把 upstream 绑到主分支；需要推送时再执行 `git push -u origin <分支名>`。本地已存在同名分支时会直接切过去；远程已存在但本地没有时，会拉到本地并切过去。
+
+## 切换分支
+
+接到需要让多个项目切到同一个已有分支时，可以切到「切换分支」页面：
+
+1. 粘贴项目列表，一行一个项目名
+2. 填写目标分支名
+3. 点**切换分支**
+
+工具会先 stash 当前未提交改动，再切到目标分支，并合并远程目标分支和远程主分支最新代码。切换完成后会保持在目标分支，不推送、不切回、不自动恢复 stash。stash 恢复中心会显示改动来自哪个来源分支。
+
 ## 安装
 
 依赖：git ≥ 2.38、Python 3（macOS 自带；面板只监听本机 127.0.0.1，不会暴露到网络）
@@ -32,16 +53,22 @@ rpc_process：dev_ws_api_product
 
 ### Windows
 
-把 `windows` 文件夹拷到任意位置（两个文件保持在一起），双击 `分支同步面板.bat`。
+把 `windows` 文件夹拷到任意位置（两个文件保持在一起），双击 `分支同步面板.bat`，会打开本机 Web 面板。
 
-- 需要已安装 [Git for Windows](https://git-scm.com/download/win) 和 [Python 3](https://www.python.org/downloads/)（装 Python 时勾选 *Add Python to PATH*，自带 tkinter）
+- 需要已安装 [Git for Windows](https://git-scm.com/download/win) 和 [Python 3](https://www.python.org/downloads/)（装 Python 时勾选 *Add Python to PATH*）
 
 ## 其他模式（可选）
 
-- 网页模式：`python3 sync-branches-ui.py`（不带 `--gui`），浏览器打开 http://127.0.0.1:8799
+- 网页模式：`python3 sync-branches-ui.py`（不带 `--gui`），浏览器打开 http://127.0.0.1:8799/sync、http://127.0.0.1:8799/create 或 http://127.0.0.1:8799/switch
 - 命令行版（macOS/Linux）：
 
 ```
 SYNC_BASE_DIR=~/你的项目目录 ./sync-branches.sh
 # 然后粘贴列表，Ctrl-D 结束
+
+SYNC_BASE_DIR=~/你的项目目录 ./sync-branches.sh --create dev_new_requirement --push
+# 然后粘贴项目名列表，一行一个项目，Ctrl-D 结束
+
+SYNC_BASE_DIR=~/你的项目目录 ./sync-branches.sh --switch dev_requirement
+# 然后粘贴项目名列表，一行一个项目，Ctrl-D 结束
 ```

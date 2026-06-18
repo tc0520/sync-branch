@@ -4,7 +4,7 @@ import Cocoa
 import WebKit
 
 let PORT = 8799
-let PANEL_URL = URL(string: "http://127.0.0.1:\(PORT)/")!
+let PANEL_URL = URL(string: "http://127.0.0.1:\(PORT)/sync")!
 
 func serverUp() -> Bool {
     var ok = false
