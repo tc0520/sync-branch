@@ -1,5 +1,9 @@
 .DS_Store
 __pycache__/
+build/
+dist/electron/
 dist/分支同步面板.zip
 dist/branch-sync-panel-windows.zip
+electron/resources/server/
+node_modules/
 .worktrees/

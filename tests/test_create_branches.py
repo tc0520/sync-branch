@@ -111,6 +111,19 @@ class CreateBranchTests(unittest.TestCase):
 
         self.assertEqual(["alpha", "zeta"], projects)
 
+    def test_list_projects_supports_multiple_roots_and_deduplicates(self):
+        first = self.root / "first"
+        second = self.root / "second"
+        for base, names in ((first, ("shared", "alpha")),
+                            (second, ("shared", "beta"))):
+            for name in names:
+                (base / name / ".git").mkdir(parents=True)
+
+        projects = self.mod.list_projects("%s\n%s" % (first, second))
+
+        self.assertEqual(["alpha", "beta", "shared"], projects)
+        self.assertEqual(1, projects.count("shared"))
+
     def test_text_inputs_disable_system_autocorrection(self):
         for element_id in ("list", "createProjects", "createBranch", "switchProjects", "switchBranch"):
             match = re.search(r'<(?:input|textarea)\b[^>]*\bid="%s"[^>]*>' % element_id,
@@ -153,6 +166,22 @@ class CreateBranchTests(unittest.TestCase):
                 stderr=subprocess.STDOUT,
             ).returncode,
         )
+        self.assertEqual("ok", self.latest_result(events)["state"])
+
+    def test_create_branch_uses_first_root_when_project_names_collide(self):
+        first_root = self.root / "first-root"
+        second_root = self.root / "second-root"
+        first_root.mkdir()
+        second_root.mkdir()
+        first_clone, _first_remote, first_work = make_project(first_root, "repo")
+        second_clone, _second_remote, second_work = make_project(second_root, "repo")
+        events, emit = self.collect_events()
+
+        self.mod.create_branch_one(
+            "repo", "dev_first", "%s\n%s" % (first_work, second_work), False, emit)
+
+        self.assertEqual("dev_first", git(["branch", "--show-current"], first_clone))
+        self.assertEqual("main", git(["branch", "--show-current"], second_clone))
         self.assertEqual("ok", self.latest_result(events)["state"])
 
     def test_dirty_worktree_is_stashed_and_not_restored_to_new_branch(self):

@@ -83,24 +83,54 @@ def parse_project_list(text):
     return projects, errors
 
 
+def parse_base_dirs(base):
+    """解析仓库根目录列表，保持填写顺序。"""
+    text = (base or "").strip() or WWW_DIR
+    for sep in ("，", "；", ";", ","):
+        text = text.replace(sep, "\n")
+    dirs = []
+    seen = set()
+    for raw in text.splitlines():
+        path = os.path.abspath(os.path.expanduser(raw.strip()))
+        if path and path not in seen:
+            seen.add(path)
+            dirs.append(path)
+    return dirs
+
+
+def any_base_dir_exists(base):
+    return any(os.path.isdir(path) for path in parse_base_dirs(base))
+
+
+def project_dir(base, proj):
+    """按目录顺序查找项目；重名时返回第一个目录里的项目。"""
+    dirs = parse_base_dirs(base)
+    for root in dirs:
+        d = os.path.join(root, proj)
+        if os.path.isdir(d):
+            return d
+    return os.path.join(dirs[0], proj) if dirs else proj
+
+
 def list_projects(base):
-    """列出仓库根目录下一层的 git 项目名。"""
-    if not os.path.isdir(base):
-        return []
+    """列出仓库根目录下一层的 git 项目名。多目录重名时保留第一个。"""
     projects = []
-    try:
-        names = os.listdir(base)
-    except OSError:
-        return []
-    for name in names:
-        if name.startswith("."):
+    seen = set()
+    for base_dir in parse_base_dirs(base):
+        try:
+            names = os.listdir(base_dir)
+        except OSError:
             continue
-        path = os.path.join(base, name)
-        if not os.path.isdir(path):
-            continue
-        git_marker = os.path.join(path, ".git")
-        if os.path.isdir(git_marker) or os.path.isfile(git_marker):
-            projects.append(name)
+        for name in names:
+            if name.startswith(".") or name in seen:
+                continue
+            path = os.path.join(base_dir, name)
+            if not os.path.isdir(path):
+                continue
+            git_marker = os.path.join(path, ".git")
+            if os.path.isdir(git_marker) or os.path.isfile(git_marker):
+                seen.add(name)
+                projects.append(name)
     return sorted(projects, key=lambda s: s.lower())
 
 
@@ -146,7 +176,7 @@ def is_ancestor(cwd, ancestor, descendant):
 def check_one(proj, target, base):
     """无副作用预检一个项目。返回卡片状态 dict。"""
     res = {"proj": proj, "target": target, "logs": [], "conflict_files": []}
-    d = os.path.join(base, proj)
+    d = project_dir(base, proj)
 
     def fail(msg):
         res["state"] = "error"
@@ -262,7 +292,7 @@ def create_branch_one(proj, branch, base, push_remote, emit):
     def result(state, msg, **extra):
         emit("result", dict({"proj": proj, "state": state, "msg": msg}, **extra))
 
-    d = os.path.join(base, proj)
+    d = project_dir(base, proj)
     if not os.path.isdir(d):
         log("err", "目录不存在: %s" % d)
         return result("error", "目录不存在", stashed=False)
@@ -376,7 +406,7 @@ def switch_branch_one(proj, branch, base, emit):
     def result(state, msg, **extra):
         emit("result", dict({"proj": proj, "state": state, "msg": msg}, **extra))
 
-    d = os.path.join(base, proj)
+    d = project_dir(base, proj)
     if not os.path.isdir(d):
         log("err", "目录不存在: %s" % d)
         return result("error", "目录不存在", stashed=False)
@@ -503,7 +533,7 @@ def sync_one(proj, target, base, emit):
     def result(state, msg, **extra):
         emit("result", dict({"proj": proj, "state": state, "msg": msg}, **extra))
 
-    d = os.path.join(base, proj)
+    d = project_dir(base, proj)
     if not os.path.isdir(d):
         log("err", "目录不存在: %s" % d)
         return result("error", "目录不存在")
@@ -671,7 +701,7 @@ def resume_one(proj, target, base, emit):
     def result(state, msg, **extra):
         emit("result", dict({"proj": proj, "state": state, "msg": msg}, **extra))
 
-    d = os.path.join(base, proj)
+    d = project_dir(base, proj)
     rc, gitdir = run_git(["rev-parse", "--git-dir"], d) if os.path.isdir(d) else (1, "")
     if rc != 0:
         return result("error", "目录不存在或不是 git 仓库")
@@ -840,34 +870,39 @@ def sse_switch_branch(projects, branch, write_event, base):
 def list_stashes(base):
     """扫描根目录下所有 git 仓库，列出本工具创建的 stash。纯本地操作，很快。"""
     found = []
-    try:
-        names = sorted(os.listdir(base))
-    except OSError:
-        return found
-    for name in names:
-        d = os.path.join(base, name)
-        if not os.path.exists(os.path.join(d, ".git")):
+    seen = set()
+    for base_dir in parse_base_dirs(base):
+        try:
+            names = sorted(os.listdir(base_dir))
+        except OSError:
             continue
-        rc, txt = run_git(["stash", "list", "--format=%gd|%ci|%gs"], d)
-        if rc != 0:
-            continue
-        for ln in txt.splitlines():
-            parts = ln.split("|", 2)
-            tags = ("sync-branches-auto:", "sync-branches-create:",
-                    "sync-branches-switch:")
-            if len(parts) == 3 and any(tag in parts[2] for tag in tags):
-                ref, date, msg = parts
-                tag = next(tag for tag in tags if tag in msg)
-                orig = msg.split(tag, 1)[-1].strip()
-                _, cur = run_git(["branch", "--show-current"], d)
-                found.append({"proj": name, "ref": ref, "date": date[:16],
-                              "branch": orig, "current": cur})
+        for name in names:
+            if name in seen:
+                continue
+            d = os.path.join(base_dir, name)
+            if not os.path.exists(os.path.join(d, ".git")):
+                continue
+            seen.add(name)
+            rc, txt = run_git(["stash", "list", "--format=%gd|%ci|%gs"], d)
+            if rc != 0:
+                continue
+            for ln in txt.splitlines():
+                parts = ln.split("|", 2)
+                tags = ("sync-branches-auto:", "sync-branches-create:",
+                        "sync-branches-switch:")
+                if len(parts) == 3 and any(tag in parts[2] for tag in tags):
+                    ref, date, msg = parts
+                    tag = next(tag for tag in tags if tag in msg)
+                    orig = msg.split(tag, 1)[-1].strip()
+                    _, cur = run_git(["branch", "--show-current"], d)
+                    found.append({"proj": name, "ref": ref, "date": date[:16],
+                                  "branch": orig, "current": cur})
     return found
 
 
 def stash_detail(base, proj, ref):
     """查看一条 stash 里包含的文件。只在用户点详情时调用。"""
-    d = os.path.join(base, proj)
+    d = project_dir(base, proj)
     rc, txt = run_git(["stash", "list", "--format=%gd"], d)
     if rc != 0:
         return {"ok": False, "msg": "不是 git 仓库", "files": []}
@@ -893,7 +928,7 @@ def stash_detail(base, proj, ref):
 
 def pop_stash(base, proj, ref):
     """恢复一条 stash：先切回它所属的分支，再 pop。返回 (ok, msg)。"""
-    d = os.path.join(base, proj)
+    d = project_dir(base, proj)
     rc, txt = run_git(["stash", "list", "--format=%gd|%gs"], d)
     if rc != 0:
         return False, "不是 git 仓库"
@@ -924,7 +959,7 @@ def pop_stash(base, proj, ref):
 
 def repo_file_path(base, proj, file):
     """拼接并校验文件路径必须落在项目目录内，防止越界。"""
-    d = os.path.realpath(os.path.join(base, proj))
+    d = os.path.realpath(project_dir(base, proj))
     p = os.path.realpath(os.path.join(d, file))
     if p != d and not p.startswith(d + os.sep):
         return None, None
@@ -932,7 +967,7 @@ def repo_file_path(base, proj, file):
 
 
 def conflict_files(base, proj):
-    d = os.path.join(base, proj)
+    d = project_dir(base, proj)
     rc, out = run_git(["diff", "--name-only", "--diff-filter=U"], d)
     if rc != 0:
         return None
@@ -1120,15 +1155,14 @@ class Handler(BaseHTTPRequestHandler):
         except Exception:  # noqa: BLE001
             self.send_error(400)
             return
-        base = os.path.expanduser((data.get("base") or "").strip()) or WWW_DIR
-        base = os.path.abspath(base)
+        base = (data.get("base") or "").strip() or WWW_DIR
         proj = (data.get("proj") or "").strip()
         file = (data.get("file") or "").strip()
         if self.path == "/api/projects":
             self._send_json({"projects": list_projects(base)})
             return
         if self.path == "/api/stashes":
-            self._send_json({"stashes": list_stashes(base) if os.path.isdir(base) else []})
+            self._send_json({"stashes": list_stashes(base) if any_base_dir_exists(base) else []})
             return
         if self.path == "/api/stash_detail":
             self._send_json(stash_detail(base, proj, (data.get("ref") or "").strip()))
@@ -1161,7 +1195,7 @@ class Handler(BaseHTTPRequestHandler):
             self._send_json({"ok": open_in_editor(base, proj, file)})
             return
         self._start_sse()
-        if not os.path.isdir(base):
+        if not any_base_dir_exists(base):
             self._event("fatal", {"msg": "仓库根目录不存在: %s" % base})
             self._event("done", {})
             return
@@ -1405,7 +1439,7 @@ PAGE = r"""<!DOCTYPE html>
     <label for="base">仓库根目录</label>
     <input id="base" type="text" spellcheck="false" autocorrect="off"
            autocapitalize="off" autocomplete="off"
-           placeholder="存放各个项目的目录，如 /Applications/ServBay/www">
+           placeholder="可填多个目录，用逗号、分号或换行分隔">
   </div>
   <section class="page" id="syncPage">
     <div class="sub">粘贴「项目：分支」列表 → <b>检测</b>（不动代码，预演合并）→ <b>一键同步</b>（stash、合并主分支、推送、切回并恢复现场）</div>
@@ -1429,7 +1463,7 @@ PAGE = r"""<!DOCTYPE html>
                     placeholder="mix_ads_web&#10;mix_ads_ws&#10;rpc_process"></textarea>
           <div class="project-tools">
             <button id="btnPickCreate" type="button">选择项目</button>
-            <span class="hint">从仓库根目录中选择已有 git 项目</span>
+            <span class="hint">从仓库目录中选择已有 git 项目，重名项目取前面的目录</span>
           </div>
         </div>
         <div class="create-side">
@@ -1458,7 +1492,7 @@ PAGE = r"""<!DOCTYPE html>
                     placeholder="mix_ads_web&#10;mix_ads_ws&#10;rpc_process"></textarea>
           <div class="project-tools">
             <button id="btnPickSwitch" type="button">选择项目</button>
-            <span class="hint">从仓库根目录中选择已有 git 项目</span>
+            <span class="hint">从仓库目录中选择已有 git 项目，重名项目取前面的目录</span>
           </div>
         </div>
         <div class="create-side">
@@ -2400,8 +2434,8 @@ def run_gui():
             self.root.destroy()
 
         def get_entries(self):
-            base = os.path.abspath(os.path.expanduser(self.base_var.get().strip()))
-            if not os.path.isdir(base):
+            base = self.base_var.get().strip() or WWW_DIR
+            if not any_base_dir_exists(base):
                 messagebox.showerror("目录不存在", "仓库根目录不存在:\n%s" % base)
                 return None, None
             entries, errors = parse_entries(self.list_text.get("1.0", "end"))
@@ -2448,8 +2482,8 @@ def run_gui():
                 self.status_var.set(label)
 
         def get_base(self):
-            base = os.path.abspath(os.path.expanduser(self.base_var.get().strip()))
-            if not os.path.isdir(base):
+            base = self.base_var.get().strip() or WWW_DIR
+            if not any_base_dir_exists(base):
                 messagebox.showerror("目录不存在", "仓库根目录不存在:\n%s" % base)
                 return None
             return base
@@ -2684,8 +2718,8 @@ def run_gui():
                 return
             proj = sel[0]
             target = self.tree.item(proj, "values")[1]
-            base = os.path.abspath(os.path.expanduser(self.base_var.get().strip()))
-            if not os.path.isdir(base):
+            base = self.base_var.get().strip() or WWW_DIR
+            if not any_base_dir_exists(base):
                 messagebox.showerror("目录不存在", "仓库根目录不存在:\n%s" % base)
                 return
             self.busy(True, "收尾中：提交合并、推送、切回原分支…")

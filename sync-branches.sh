@@ -22,10 +22,27 @@
 
 set -u
 
-# 项目根目录：默认脚本所在目录，可用环境变量 SYNC_BASE_DIR 覆盖，
-# 例如 SYNC_BASE_DIR=~/projects ./sync-branches.sh
+# 项目根目录：默认脚本所在目录，可用环境变量 SYNC_BASE_DIR 覆盖。
+# 多个目录可用逗号或分号分隔；重名项目按目录顺序取第一个。
+# 例如 SYNC_BASE_DIR="~/projects;/Applications/ServBay/www" ./sync-branches.sh
 WWW_DIR="${SYNC_BASE_DIR:-$(cd "$(dirname "$0")" && pwd)}"
-if [ ! -d "$WWW_DIR" ]; then
+BASE_DIRS=()
+while IFS= read -r base_dir; do
+    base_dir="$(printf '%s' "$base_dir" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
+    [ -z "$base_dir" ] && continue
+    BASE_DIRS+=("$base_dir")
+done <<EOF
+$(printf '%s\n' "$WWW_DIR" | tr ',;' '\n\n')
+EOF
+
+HAS_BASE_DIR=0
+for base_dir in "${BASE_DIRS[@]}"; do
+    if [ -d "$base_dir" ]; then
+        HAS_BASE_DIR=1
+        break
+    fi
+done
+if [ "$HAS_BASE_DIR" -eq 0 ]; then
     echo "项目根目录不存在: $WWW_DIR" >&2
     exit 1
 fi
@@ -198,10 +215,22 @@ in_rebase_state() {
     [ -d "$gd/rebase-merge" ] || [ -d "$gd/rebase-apply" ]
 }
 
+project_dir() {
+    local proj="$1" base_dir
+    for base_dir in "${BASE_DIRS[@]}"; do
+        if [ -d "$base_dir/$proj" ]; then
+            printf '%s\n' "$base_dir/$proj"
+            return
+        fi
+    done
+    printf '%s\n' "${BASE_DIRS[0]}/$proj"
+}
+
 # ---------- 主流程 ----------
 process_project() {
     local proj="$1" target="$2"
-    local dir="$WWW_DIR/$proj"
+    local dir
+    dir="$(project_dir "$proj")"
 
     echo ""
     echo "${C_BOLD}========== $proj -> $target ==========${C_RESET}"
@@ -375,7 +404,9 @@ process_project() {
 }
 
 process_create_project() {
-    local proj="$1" branch="$2" dir="$WWW_DIR/$proj"
+    local proj="$1" branch="$2"
+    local dir
+    dir="$(project_dir "$proj")"
 
     echo ""
     echo "${C_BOLD}========== $proj 创建 $branch ==========${C_RESET}"
@@ -499,7 +530,9 @@ process_create_project() {
 }
 
 process_switch_project() {
-    local proj="$1" branch="$2" dir="$WWW_DIR/$proj"
+    local proj="$1" branch="$2"
+    local dir
+    dir="$(project_dir "$proj")"
 
     echo ""
     echo "${C_BOLD}========== $proj 切换 $branch ==========${C_RESET}"
@@ -625,8 +658,10 @@ process_switch_project() {
 
 print_conflict_help() {
     local proj="$1" target="$2" orig_branch="$3" stashed="$4"
+    local dir
+    dir="$(project_dir "$proj")"
     log_line help "$proj" "解决冲突后请依次执行："
-    log_line help "$proj" "  cd $WWW_DIR/$proj"
+    log_line help "$proj" "  cd $dir"
     log_line help "$proj" "  # 编辑冲突文件 -> git add <文件> -> git commit"
     log_line help "$proj" "  git push origin $target"
     log_line help "$proj" "  git checkout $orig_branch"
@@ -637,8 +672,10 @@ print_conflict_help() {
 
 print_switch_conflict_help() {
     local proj="$1" target="$2" orig_branch="$3" stashed="$4"
+    local dir
+    dir="$(project_dir "$proj")"
     log_line help "$proj" "解决冲突后请依次执行："
-    log_line help "$proj" "  cd $WWW_DIR/$proj"
+    log_line help "$proj" "  cd $dir"
     log_line help "$proj" "  # 编辑冲突文件 -> git add <文件> -> git commit"
     log_line help "$proj" "  # 保持在 $target 分支即可，不会自动推送或切回 $orig_branch"
     if [ "$stashed" -eq 1 ]; then

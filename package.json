@@ -1,0 +1,57 @@
+{
+  "name": "sync-branches-panel",
+  "version": "1.0.0",
+  "description": "Cross-platform desktop shell for the sync-branches panel.",
+  "main": "electron/main.js",
+  "private": true,
+  "scripts": {
+    "start": "electron .",
+    "test:electron": "node --test tests/electron_launcher.test.js",
+    "build:server": "node scripts/build-server.js",
+    "dist:electron": "npm run build:server && electron-builder",
+    "dist:electron:dir": "npm run build:server && electron-builder --dir"
+  },
+  "devDependencies": {
+    "electron": "^42.4.1",
+    "electron-builder": "^26.0.12"
+  },
+  "build": {
+    "appId": "com.standardsoftware.syncbranches",
+    "productName": "分支同步面板",
+    "asar": true,
+    "directories": {
+      "output": "dist/electron"
+    },
+    "files": [
+      "electron/**/*",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "electron/resources/server",
+        "to": "server",
+        "filter": [
+          "**/*"
+        ]
+      }
+    ],
+    "mac": {
+      "target": [
+        "dmg",
+        "zip"
+      ],
+      "category": "public.app-category.developer-tools"
+    },
+    "win": {
+      "target": [
+        "nsis",
+        "zip"
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true
+    }
+  }
+}

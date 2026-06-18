@@ -4,6 +4,8 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
+MULTI_TMP="$(mktemp -d)"
+trap 'rm -rf "$TMP" "$MULTI_TMP"' EXIT
 
 git_cmd() {
     git "$@"
@@ -35,6 +37,38 @@ make_project repo_dirty
 make_project repo_remote
 make_project repo_local_only
 make_project repo_switch
+
+make_multi_project() {
+    local root="$1" name="$2"
+    mkdir -p "$root/remotes" "$root/work"
+    git_cmd init --bare "$root/remotes/${name}.git" >/dev/null
+    git_cmd clone "$root/remotes/${name}.git" "$root/seed-${name}" >/dev/null 2>&1
+    (
+        cd "$root/seed-${name}"
+        git_cmd checkout -b main >/dev/null
+        git_cmd config user.email test@example.com
+        git_cmd config user.name "Test User"
+        printf '%s\n' "$name" > README.md
+        git_cmd add README.md
+        git_cmd commit -m initial >/dev/null
+        git_cmd push -u origin main >/dev/null 2>&1
+    )
+    git_cmd -C "$root/remotes/${name}.git" symbolic-ref HEAD refs/heads/main
+    git_cmd clone "$root/remotes/${name}.git" "$root/work/${name}" >/dev/null 2>&1
+    git_cmd -C "$root/work/${name}" config user.email test@example.com
+    git_cmd -C "$root/work/${name}" config user.name "Test User"
+}
+
+mkdir -p "$MULTI_TMP/first" "$MULTI_TMP/second"
+make_multi_project "$MULTI_TMP/first" repo_shared
+make_multi_project "$MULTI_TMP/second" repo_shared
+
+SYNC_BASE_DIR="$MULTI_TMP/first/work;$MULTI_TMP/second/work" "$ROOT/sync-branches.sh" --create dev_first_cli <<'EOF'
+repo_shared
+EOF
+
+[ "$(git_cmd -C "$MULTI_TMP/first/work/repo_shared" branch --show-current)" = "dev_first_cli" ]
+[ "$(git_cmd -C "$MULTI_TMP/second/work/repo_shared" branch --show-current)" = "main" ]
 
 printf 'old work\n' > "$TMP/work/repo_dirty/scratch.txt"
 

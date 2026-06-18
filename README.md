@@ -1,6 +1,7 @@
 # 分支同步面板（sync-branches）
 
 批量把多个 git 项目的指定分支合并上主分支最新代码并推送，也能基于远程主分支批量创建新分支，或批量切换多个项目到同一个目标分支的桌面工具。
+推荐分发方式是 Electron 桌面应用：Electron 负责跨系统窗口和进程管理，PyInstaller 把 Python 后端打进应用资源里，因此使用者只需要安装 Git，不需要单独安装 Python。
 典型场景：测试同学发来一串「项目：分支」，以前要逐个项目 stash → 切分支 → 拉代码 → 合并 → 推送 → 切回来；现在粘贴进面板一键完成，冲突也能在面板里点选解决。
 
 ```
@@ -20,15 +21,29 @@ rpc_process：dev_ws_api_product
 - **stash 恢复中心**：列出工具自动 stash 的所有改动，一键找回；点「查看详情」可按需查看该 stash 包含的文件清单，防止丢改动
 - **复制结果汇总**：生成纯文字报告粘回给测试同学
 - 主分支按 `origin/HEAD` 自动识别（master / main 混用没关系）
+- 仓库根目录可填多个目录（逗号、分号或换行分隔）；如果不同目录里有同名项目，默认使用填写顺序里第一个目录下的项目
 
 ## 使用方式（四选一）
 
 | 方式 | 怎么用 | 适用 |
 |---|---|---|
-| Mac 应用 | 双击 `dist/分支同步面板.app`（可拖进「应用程序」） | 日常推荐 |
-| Windows | 把 `dist/windows/` 两个文件拷出去，双击 `分支同步面板.bat`，会打开本机 Web 面板 | Windows 同事 |
+| Electron 应用 | `npm run dist:electron` 生成平台安装包，双击应用打开桌面窗口 | 推荐，跨 macOS / Windows |
+| Mac 应用（旧） | 双击 `dist/分支同步面板.app`（可拖进「应用程序」） | 旧 Swift 壳 |
+| Windows（旧） | 把 `dist/windows/` 两个文件拷出去，双击 `分支同步面板.bat`，会打开本机 Web 面板 | 旧 bat 入口 |
 | 网页 | `python3 sync-branches-ui.py`，浏览器开 http://127.0.0.1:8799/sync、http://127.0.0.1:8799/create 或 http://127.0.0.1:8799/switch | 临时/远程 |
 | 命令行 | `SYNC_BASE_DIR=~/项目目录 ./sync-branches.sh` 然后粘贴列表 Ctrl-D | 不想开界面 |
+
+如果项目不在同一个目录里，Web 面板的「仓库根目录」可以填写多个目录，例如：
+
+```text
+/Applications/ServBay/www;/Users/you/company-extra
+```
+
+命令行版同样支持：
+
+```bash
+SYNC_BASE_DIR="/Applications/ServBay/www;/Users/you/company-extra" ./sync-branches.sh --create dev_new_requirement
+```
 
 命令行创建新分支：
 
@@ -48,8 +63,8 @@ SYNC_BASE_DIR=~/项目目录 ./sync-branches.sh --switch dev_requirement
 
 切换分支会要求目标分支在本地或远程已存在。远程已存在但本地没有时，会从 `origin/<分支名>` 拉到本地并切过去。切换完成后仓库保持在目标分支；如果来源分支有未提交改动，会保存为 `sync-branches-switch: <来源分支>`，可在 stash 恢复中心里看到来源分支并稍后恢复。
 
-依赖：git ≥ 2.38（要用 `merge-tree --write-tree`）、Python 3.9+。只监听 127.0.0.1，不暴露网络。
-发给同事：直接把 `dist/分支同步面板.zip` 发出去（里面含 Mac 应用、Windows 包和用户版说明）。
+依赖：git ≥ 2.38（要用 `merge-tree --write-tree`）。Electron 包使用者不需要装 Python；网页/命令行开发模式仍需要 Python 3.9+。只监听 127.0.0.1，不暴露网络。
+发给同事：优先发 `dist/electron/` 里生成的平台安装包；旧分发包仍可用 `dist/分支同步面板.zip`。
 Mac 首次打开提示「无法验证开发者」时：右键 App → 打开。
 
 ## 目录结构
@@ -58,8 +73,10 @@ Mac 首次打开提示「无法验证开发者」时：右键 App → 打开。
 sync-branches/
 ├── sync-branches-ui.py    ★ 核心源码（唯一需要日常修改的文件）
 ├── sync-branches.sh       命令行版（独立实现，bash 3.2 兼容）
+├── electron/              Electron 桌面壳（启动内置后端并显示 Web 面板）
 ├── macos/main.swift       Mac 原生窗口壳（WKWebView 加载本地服务）
 ├── scripts/build.sh       一键构建：编译壳 + 刷新拷贝 + 签名 + 打 zip
+├── scripts/build-server.js PyInstaller 后端构建脚本（生成 Electron 内置后端）
 └── dist/                  分发产物
     ├── 分支同步面板.app    Mac 应用（Resources 里有 ui.py 的构建拷贝）
     ├── windows/           Windows 包（.bat + ui.py 的构建拷贝）
@@ -80,16 +97,16 @@ sync-branches/
    所有函数通过 `emit(event, data)` 回调上报进度，**不感知界面**。
 2. **Web 层**：`ThreadingHTTPServer` + 内嵌 HTML（`PAGE` 变量）。
    流式接口走 SSE：`/api/check`、`/api/sync`、`/api/create_branch`、`/api/switch_branch`、`/api/resume`；
-   普通 JSON：`/api/stashes`、`/api/stash_pop`、`/api/conflicts`、
+   普通 JSON：`/api/projects`、`/api/stashes`、`/api/stash_pop`、`/api/conflicts`、
    `/api/conflict_detail`、`/api/conflict_save`、`/api/conflict_side`、`/api/open_editor`。
    SSE 事件类型：`entries / meta / log / result / check / parse_error / fatal / done`，
    其中 result 可带 `resume: true` 表示该项目可走冲突解决/收尾。
-3. **GUI 层**（`run_gui`，tkinter）：保留为调试/备用入口。Mac App 和 Windows `.bat` 都走 Web 层，因此同步分支页 `/sync`、创建新分支页 `/create` 与切换分支页 `/switch` 功能一致。
+3. **GUI 层**：推荐 Electron 壳；旧 `run_gui` tkinter 入口保留为调试/备用入口。Electron、旧 Mac App 和旧 Windows `.bat` 都走 Web 层，因此同步分支页 `/sync`、创建新分支页 `/create` 与切换分支页 `/switch` 功能一致。
 
 **关键约定：**
 
 - 入口：`--gui` 进 tkinter 备用界面；否则起 Web 服务（端口默认 8799，可传数字参数改，默认打开 `/sync`）
-- 环境变量：`SYNC_DEFAULT_BASE` 默认仓库根目录（壳启动器会设为 $HOME）；`SYNC_NO_BROWSER=1` 不自动开浏览器（Swift 壳用）
+- 环境变量：`SYNC_DEFAULT_BASE` 默认仓库根目录（壳启动器会设为 $HOME）；`SYNC_NO_BROWSER=1` 不自动开浏览器（Electron / Swift 壳用）
 - 冲突现场的收尾信息（出发分支、是否 stash 过）写在 `<repo>/.git/sync-branches-resume.json`
 - 同步流程创建的 stash 统一带 `sync-branches-auto: <原分支名>` 标记，创建新分支流程创建的 stash 统一带 `sync-branches-create: <原分支名>` 标记，切换分支流程创建的 stash 统一带 `sync-branches-switch: <原分支名>` 标记
 - 同名项目在一次同步里只会跑一个线程（重复条目自动跳过）
@@ -101,6 +118,10 @@ sync-branches/
 ```bash
 # 改完直接跑，浏览器里调（带热改：改完重启脚本+刷新页面即可）
 python3 sync-branches-ui.py 8799
+
+# Electron 开发壳。未构建内置后端时会 fallback 到本机 Python 跑源码。
+npm install
+npm start
 
 # 调 Windows GUI（Mac 上能跑起来但渲染可能白屏，逻辑调试够用）
 python3 sync-branches-ui.py --gui
@@ -119,8 +140,16 @@ python3 sync-branches-ui.py --gui
 ## 构建与发布
 
 ```bash
-./scripts/build.sh    # 编译壳 -> 刷新两份 ui.py 拷贝 -> 签名 -> 生成 dist/分支同步面板.zip
+# 推荐：Electron 包。PyInstaller 会把 Python 后端打成平台原生可执行文件。
+python3 -m pip install pyinstaller
+npm install
+npm run dist:electron
+
+# 旧包：Swift 壳 + Windows bat
+./scripts/build.sh
 ```
+
+> Electron 包里的后端可执行文件是平台相关的：Windows 包请在 Windows 或 CI Windows runner 上构建，macOS 包请在 macOS 上构建。跨平台复用同一个 Python 后端二进制不可行。
 
 > ⚠️ `dist/分支同步面板.app/Contents/Resources/` 和 `dist/windows/` 里的 `sync-branches-ui.py`
 > 是**构建拷贝**，永远不要直接改它们——改根目录那份，然后跑 build.sh。
