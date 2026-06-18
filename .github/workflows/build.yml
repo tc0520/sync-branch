@@ -115,11 +115,11 @@ jobs:
           fi
 
           if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
-            while IFS= read -r asset_name; do
-              if [ -n "$asset_name" ]; then
-                gh release delete-asset "$GITHUB_REF_NAME" "$asset_name" --yes
+            while IFS= read -r asset_url; do
+              if [ -n "$asset_url" ]; then
+                gh api --method DELETE "${asset_url#https://api.github.com/}"
               fi
-            done < <(gh release view "$GITHUB_REF_NAME" --json assets --jq '.assets[].name')
+            done < <(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$GITHUB_REF_NAME" --jq '.assets[].url')
             gh release upload "$GITHUB_REF_NAME" "${files[@]}"
           else
             gh release create "$GITHUB_REF_NAME" "${files[@]}" \
